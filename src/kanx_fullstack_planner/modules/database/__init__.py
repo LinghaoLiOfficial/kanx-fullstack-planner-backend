@@ -1,0 +1,1 @@
+"""Database module placeholder."""

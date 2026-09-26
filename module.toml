@@ -1,0 +1,8 @@
+composition_version = 2
+name = "kanx-fullstack-planner"
+version = "0.1.0"
+description = "Generated backend project"
+slug = "kanx-fullstack-planner"
+package = "kanx_fullstack_planner"
+profile = "custom"
+modules = ["database", "temporal", "ai", "jobs"]

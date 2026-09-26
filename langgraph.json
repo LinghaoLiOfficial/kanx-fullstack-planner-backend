@@ -1,0 +1,6 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "agent": "kanx_fullstack_planner.modules.ai.graph:compiled_graph"
+  }
+}

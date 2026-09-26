@@ -1,0 +1,104 @@
+services:
+  postgres:
+    image: postgres:16.4
+    environment:
+      POSTGRES_USER: ${DATABASE_USER:-foundation}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-foundation}
+      POSTGRES_DB: ${DATABASE_NAME:-kanx_fullstack_planner}
+    ports:
+      - "${DATABASE_HOST_PORT:-55432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  temporal:
+    image: temporalio/auto-setup:1.27.2
+    profiles: [workflow]
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: ${DATABASE_USER:-foundation}
+      POSTGRES_PWD: ${DATABASE_PASSWORD:-foundation}
+      POSTGRES_SEEDS: postgres
+    depends_on:
+      postgres: {condition: service_healthy}
+    ports:
+      - "${TEMPORAL_HOST_PORT:-7233}:7233"
+    healthcheck:
+      test: ["CMD-SHELL", "temporal operator cluster health --address $$(hostname -i):7233"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    profiles: [workflow]
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    depends_on: [temporal]
+    ports:
+      - "${TEMPORAL_UI_PORT:-8233}:8080"
+  namespace:
+    image: temporalio/admin-tools:1.27.2-tctl-1.18.2-cli-1.3.0
+    profiles: [workflow]
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-kanx-fullstack-planner}
+    depends_on:
+      temporal: {condition: service_healthy}
+    entrypoint: [/bin/sh, -c]
+    command:
+      - >-
+        until temporal operator namespace describe --namespace "$${TEMPORAL_NAMESPACE}" >/dev/null 2>&1 ||
+        temporal operator namespace create --namespace "$${TEMPORAL_NAMESPACE}" --retention 7d;
+        do sleep 2; done
+    restart: "no"
+  mailpit:
+    image: axllent/mailpit:v1.27.8
+    profiles: [identity]
+    ports:
+      - "${EMAIL_SMTP_HOST_PORT:-1025}:1025"
+      - "${EMAIL_UI_PORT:-8025}:8025"
+  minio:
+    image: bitnamilegacy/minio:2025.7.23-debian-12-r0
+    profiles: [saas]
+    environment:
+      MINIO_ROOT_USER: ${STORAGE_ACCESS_KEY:-foundation}
+      MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_KEY:-foundation-secret}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+    ports:
+      - "${STORAGE_HOST_PORT:-9000}:9000"
+      - "${STORAGE_CONSOLE_PORT:-9001}:9001"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - storage-data:/bitnami/minio/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio-init:
+    image: bitnamilegacy/minio-client:2025.7.21-debian-12-r1
+    profiles: [saas]
+    depends_on:
+      minio: {condition: service_healthy}
+    environment:
+      STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-foundation}
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-foundation-secret}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-kanx-fullstack-planner}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mc alias set local http://minio:9000 "$${STORAGE_ACCESS_KEY}" "$${STORAGE_SECRET_KEY}" &&
+        mc mb --ignore-existing "local/$${STORAGE_BUCKET}" &&
+        mc anonymous set private "local/$${STORAGE_BUCKET}"
+    restart: "no"
+volumes:
+  postgres-data:
+    name: "${APP_SLUG:-kanx-fullstack-planner}-postgres-data"
+  storage-data:
+    name: "${APP_SLUG:-kanx-fullstack-planner}-storage-data"
