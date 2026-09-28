@@ -3,4 +3,5 @@ INSTALLED_MODULES = (
     "temporal",
     "ai",
     "jobs",
+    "planner",
 )

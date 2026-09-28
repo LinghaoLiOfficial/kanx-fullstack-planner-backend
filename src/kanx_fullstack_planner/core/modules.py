@@ -137,6 +137,10 @@ def load_modules(settings: Settings) -> tuple[ModuleSpec, ...]:
         from ..modules.jobs.module import module as jobs
 
         registry[jobs.name] = jobs
+    if "planner" in INSTALLED_MODULES:
+        from ..modules.planner.module import module as planner
+
+        registry[planner.name] = planner
     if "users" in INSTALLED_MODULES:
         from ..modules.users.module import module as users
 

@@ -253,7 +253,8 @@ def run_application_processes(settings: Settings) -> None:
         ]
     ]
     if _has("temporal"):
-        commands.append([sys.executable, "-m", "kanx_fullstack_planner.modules.temporal.worker"])
+        worker_command = [sys.executable, "-m", "kanx_fullstack_planner.modules.temporal.worker"]
+        commands.extend([worker_command.copy() for _ in range(settings.temporal_worker_count)])
     if _has("jobs"):
         commands.append([sys.executable, "-m", "kanx_fullstack_planner.modules.jobs.dispatcher"])
     if _has("ai"):

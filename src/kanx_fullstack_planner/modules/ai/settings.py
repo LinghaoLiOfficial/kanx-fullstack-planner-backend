@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
@@ -10,9 +10,17 @@ class LLMConfig(BaseModel):
     base_url: str = "https://api.openai.com/v1"
     api_key: SecretStr = SecretStr("")
     model: str = "gpt-4.1-mini"
-    connect_timeout_seconds: float = Field(default=5, gt=0, le=120)
-    read_timeout_seconds: float = Field(default=60, gt=0, le=600)
-    max_retries: int = Field(default=2, ge=0, le=10)
+    structured_output_method: Literal["function_calling", "json_mode", "json_schema"] = (
+        "json_schema"
+    )
+    connect_timeout_seconds: float = Field(default=20, gt=0, le=120)
+    read_timeout_seconds: float = Field(default=300, gt=0, le=600)
+    provider_max_retries: int = Field(
+        default=1, ge=0, le=10, validation_alias="LLM_PROVIDER_MAX_RETRIES"
+    )
+    schema_max_retries: int = Field(
+        default=1, ge=0, le=1, validation_alias="LLM_SCHEMA_MAX_RETRIES"
+    )
     temperature: float = Field(default=0, ge=0, le=2)
     max_tokens: int = Field(default=2048, ge=1)
     top_p: float | None = Field(default=None, ge=0, le=1)
@@ -36,9 +44,13 @@ class LLMTaskConfig(BaseModel):
     base_url: str | None = None
     api_key: SecretStr | None = None
     model: str | None = None
+    structured_output_method: Literal[
+        "function_calling", "json_mode", "json_schema"
+    ] | None = None
     connect_timeout_seconds: float | None = Field(default=None, gt=0, le=120)
     read_timeout_seconds: float | None = Field(default=None, gt=0, le=600)
-    max_retries: int | None = Field(default=None, ge=0, le=10)
+    provider_max_retries: int | None = Field(default=None, ge=0, le=10)
+    schema_max_retries: int | None = Field(default=None, ge=0, le=1)
     temperature: float | None = Field(default=None, ge=0, le=2)
     max_tokens: int | None = Field(default=None, ge=1)
     top_p: float | None = Field(default=None, ge=0, le=1)

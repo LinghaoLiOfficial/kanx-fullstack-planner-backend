@@ -18,7 +18,7 @@ def create_chat_model(settings: AISettings | None = None, *, task: str | None = 
         api_key=configured.api_key,
         base_url=configured.base_url,
         timeout=(configured.connect_timeout_seconds, configured.read_timeout_seconds),
-        max_retries=configured.max_retries,
+        max_retries=configured.provider_max_retries,
         temperature=configured.temperature,
         max_completion_tokens=configured.max_tokens,
         **optional_parameters,
@@ -51,6 +51,9 @@ async def structured_output[Schema: BaseModel](
     *,
     task: str | None = None,
 ) -> Schema:
-    model = create_chat_model(settings, task=task).with_structured_output(schema)
+    configured = (settings or get_ai_settings()).for_task(task)
+    model = create_chat_model(settings, task=task).with_structured_output(
+        schema, method=configured.structured_output_method
+    )
     result = await model.ainvoke(messages)
     return schema.model_validate(result)

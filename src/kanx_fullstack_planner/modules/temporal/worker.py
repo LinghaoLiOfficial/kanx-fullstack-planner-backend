@@ -41,6 +41,10 @@ async def run_worker(
             task_queue=configured.temporal_task_queue,
             workflows=workflows,
             activities=activities,
+            max_concurrent_activities=configured.temporal_worker_max_concurrent_activities,
+            max_concurrent_workflow_tasks=(
+                configured.temporal_worker_max_concurrent_workflow_tasks
+            ),
         ):
             await asyncio.Event().wait()
     finally:

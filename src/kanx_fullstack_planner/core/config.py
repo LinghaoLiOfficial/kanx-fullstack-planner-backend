@@ -92,6 +92,9 @@ class Settings(EnvironmentSettings):
     temporal_ui_url: str = "http://localhost:8233"
     temporal_namespace: str = "kanx-fullstack-planner"
     temporal_task_queue: str = "kanx-fullstack-planner-worker"
+    temporal_worker_count: int = Field(default=1, ge=1, le=1000)
+    temporal_worker_max_concurrent_activities: int = Field(default=2, ge=1, le=1000)
+    temporal_worker_max_concurrent_workflow_tasks: int = Field(default=10, ge=1, le=1000)
     temporal_auto_register_namespace: bool | None = None
 
     email_smtp_host_port: int = Field(default=1025, ge=1, le=65535)

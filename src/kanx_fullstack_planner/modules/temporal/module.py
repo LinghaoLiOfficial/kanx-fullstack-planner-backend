@@ -41,4 +41,9 @@ module = ModuleSpec(
         ComposeCapability("temporal-ui"),
         ComposeCapability("namespace"),
     ),
+    optional_env=(
+        "TEMPORAL_WORKER_COUNT",
+        "TEMPORAL_WORKER_MAX_CONCURRENT_ACTIVITIES",
+        "TEMPORAL_WORKER_MAX_CONCURRENT_WORKFLOW_TASKS",
+    ),
 )
