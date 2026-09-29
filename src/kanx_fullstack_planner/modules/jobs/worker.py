@@ -125,17 +125,14 @@ def build_job_activity(
             attempt = await session.scalar(
                 select(JobAttempt).where(
                     JobAttempt.job_id == job.id,
-                    JobAttempt.attempt
-                    == (generation_attempt - 1) * 1000 + temporal_attempt,
+                    JobAttempt.attempt == (generation_attempt - 1) * 1000 + temporal_attempt,
                 )
             )
             if attempt is None:
                 attempt = JobAttempt(
                     job_id=job.id,
                     attempt=(generation_attempt - 1) * 1000 + temporal_attempt,
-                    workflow_id=(
-                        f"job/{job.id}/{generation_attempt}/attempt/{temporal_attempt}"
-                    ),
+                    workflow_id=(f"job/{job.id}/{generation_attempt}/attempt/{temporal_attempt}"),
                 )
                 session.add(attempt)
             attempt.started_at = attempt.started_at or datetime.now(UTC)
@@ -164,8 +161,7 @@ def build_job_activity(
                 attempt = await session.scalar(
                     select(JobAttempt).where(
                         JobAttempt.job_id == job_id,
-                        JobAttempt.attempt
-                        == (generation_attempt - 1) * 1000 + temporal_attempt,
+                        JobAttempt.attempt == (generation_attempt - 1) * 1000 + temporal_attempt,
                     )
                 )
                 if current is not None:
@@ -192,8 +188,7 @@ def build_job_activity(
                 attempt = await session.scalar(
                     select(JobAttempt).where(
                         JobAttempt.job_id == job_id,
-                        JobAttempt.attempt
-                        == (generation_attempt - 1) * 1000 + temporal_attempt,
+                        JobAttempt.attempt == (generation_attempt - 1) * 1000 + temporal_attempt,
                     )
                 )
                 if current is not None:
@@ -250,8 +245,7 @@ def build_job_activity(
             attempt = await session.scalar(
                 select(JobAttempt).where(
                     JobAttempt.job_id == job_id,
-                    JobAttempt.attempt
-                    == (generation_attempt - 1) * 1000 + temporal_attempt,
+                    JobAttempt.attempt == (generation_attempt - 1) * 1000 + temporal_attempt,
                 )
             )
             if current is not None:

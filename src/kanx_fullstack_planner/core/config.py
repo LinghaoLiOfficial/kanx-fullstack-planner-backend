@@ -79,7 +79,9 @@ class Settings(EnvironmentSettings):
     observability_exporter_kind: str = "otlp"
     observability_exporter_timeout_seconds: float = Field(default=2.0, gt=0, le=30)
 
-    database_url: str = "postgresql+asyncpg://foundation:foundation@localhost:55432/kanx_fullstack_planner"
+    database_url: str = (
+        "postgresql+asyncpg://foundation:foundation@localhost:55432/kanx_fullstack_planner"
+    )
     database_user: str = "foundation"
     database_password: str = "foundation"
     database_name: str = "kanx_fullstack_planner"

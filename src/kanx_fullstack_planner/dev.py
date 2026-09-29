@@ -123,6 +123,23 @@ def wait_for_port(port: int, timeout: float = 90) -> None:
     raise RuntimeError(f"Timed out waiting for localhost:{port}")
 
 
+def ensure_local_application_ports(settings: Settings) -> None:
+    targets = [(settings.api_port, "API")]
+    if _has("ai"):
+        targets.append((settings.gradio_port, "Gradio"))
+    for port, service in targets:
+        host = _display_host(settings.api_host)
+        try:
+            with socket.create_connection((host, port), timeout=0.25):
+                pass
+        except OSError:
+            continue
+        raise RuntimeError(
+            f"Port {port} for {service} is already in use. "
+            f"Stop the existing local process or change the configured port."
+        )
+
+
 def _display_host(host: str) -> str:
     if host in {"0.0.0.0", "::", "[::]", "localhost"}:
         return "127.0.0.1"
@@ -239,6 +256,7 @@ def migrate(settings: Settings) -> None:
 
 
 def run_application_processes(settings: Settings) -> None:
+    ensure_local_application_ports(settings)
     commands = [
         [
             sys.executable,

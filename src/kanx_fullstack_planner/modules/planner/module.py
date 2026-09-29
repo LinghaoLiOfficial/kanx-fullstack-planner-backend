@@ -1,8 +1,12 @@
 from ...core.modules import JobTypeSpec, MigrationDescriptor, ModuleSpec
+from .admin_api import router as admin_router
 from .api import router
 from .models import (
     LLMInvocation,
+    RawRequirement,
+    RawRequirementRevision,
     Requirement,
+    RequirementDependency,
     RequirementRevision,
     ValidationFinding,
     WorkflowRun,
@@ -14,14 +18,17 @@ from .settings import get_planner_settings
 module = ModuleSpec(
     name="planner",
     requires=("database", "temporal", "ai", "jobs"),
-    routers=(router,),
+    routers=(router, admin_router),
     models=(
+        RawRequirement,
+        RawRequirementRevision,
         WorkflowRun,
         WorkflowStep,
         LLMInvocation,
         ValidationFinding,
         Requirement,
         RequirementRevision,
+        RequirementDependency,
     ),
     migrations=(MigrationDescriptor("planner"),),
     permissions=("planner:read", "planner:write", "planner:cancel"),

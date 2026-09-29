@@ -5,7 +5,10 @@ from collections.abc import Sequence
 from alembic import op
 from kanx_fullstack_planner.modules.planner.models import (
     LLMInvocation,
+    RawRequirement,
+    RawRequirementRevision,
     Requirement,
+    RequirementDependency,
     RequirementRevision,
     ValidationFinding,
     WorkflowRun,
@@ -18,12 +21,15 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 TABLES = (
+    RawRequirement,
+    RawRequirementRevision,
     WorkflowRun,
     WorkflowStep,
     LLMInvocation,
     ValidationFinding,
     Requirement,
     RequirementRevision,
+    RequirementDependency,
 )
 
 

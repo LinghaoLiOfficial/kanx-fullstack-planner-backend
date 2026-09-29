@@ -55,6 +55,7 @@ def create_app(
         allow_headers=[
             "Authorization",
             "Content-Type",
+            "Idempotency-Key",
             "X-CSRF-Token",
             "X-Request-ID",
         ],

@@ -157,6 +157,10 @@ def load_modules(settings: Settings) -> tuple[ModuleSpec, ...]:
         from ..modules.auth.module import module as auth
 
         registry[auth.name] = auth
+    if "projects" in INSTALLED_MODULES:
+        from ..modules.projects.module import module as projects
+
+        registry[projects.name] = projects
     if "storage" in INSTALLED_MODULES:
         from ..modules.storage.module import module as storage
 

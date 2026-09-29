@@ -15,6 +15,10 @@ class ProjectContext(PlannerSchema):
     target_users: list[str] = Field(default_factory=list)
     business_domain: str | None = None
     language: str = "zh-CN"
+    frontend_tech_stack: list[str] = Field(default_factory=list)
+    backend_tech_stack: list[str] = Field(default_factory=list)
+    database_tech_stack: list[str] = Field(default_factory=list)
+    global_constraints: list[str] = Field(default_factory=list)
 
 
 class RawRequirementInput(PlannerSchema):
@@ -44,6 +48,10 @@ class BusinessIntent(PlannerSchema):
     confidence: float = Field(ge=0, le=1)
 
 
+class BusinessIntentExtraction(PlannerSchema):
+    intents: list[BusinessIntent] = Field(default_factory=list)
+
+
 class NormalizedRequirement(PlannerSchema):
     normalized_summary: str
     user_roles: list[str] = Field(default_factory=list)
@@ -54,9 +62,37 @@ class NormalizedRequirement(PlannerSchema):
     unresolved_terms: list[str] = Field(default_factory=list)
 
 
-class Scope(PlannerSchema):
-    in_scope: list[str] = Field(default_factory=list)
-    out_of_scope: list[str] = Field(default_factory=list)
+class RequirementCandidate(PlannerSchema):
+    draft_key: str
+    name: str
+    value: str
+    primary_actor: str
+    source_evidence: list[str] = Field(default_factory=list)
+
+
+class CandidateRequirements(PlannerSchema):
+    candidates: list[RequirementCandidate] = Field(default_factory=list)
+
+
+class ImpactScope(PlannerSchema):
+    business_domains: list[str] = Field(default_factory=list)
+    user_roles: list[str] = Field(default_factory=list)
+    business_objects: list[str] = Field(default_factory=list)
+    workflows: list[str] = Field(default_factory=list)
+    future_asset_types: list[str] = Field(default_factory=list)
+
+
+class BusinessScope(PlannerSchema):
+    included: list[str] = Field(default_factory=list)
+    excluded: list[str] = Field(default_factory=list)
+
+
+class ExecutionGuidance(PlannerSchema):
+    objective: str
+    expected_behavior: list[str] = Field(default_factory=list)
+    business_rules: list[str] = Field(default_factory=list)
+    validation_notes: list[str] = Field(default_factory=list)
+    implementation_boundary: str = "不规定具体技术实现"
 
 
 class AcceptanceCriterion(PlannerSchema):
@@ -81,23 +117,28 @@ class Ambiguity(PlannerSchema):
 
 
 class AgileRequirement(PlannerSchema):
-    draft_key: str
+    requirement_key: str
     name: str
     user_story: str
     business_goal: str
-    scope: Scope
+    status: Literal["draft", "needs_clarification", "ready", "approved", "archived"] = "draft"
+    priority_source: Literal["explicit", "inferred", "default"] = "default"
+    impact_scope: ImpactScope
+    business_scope: BusinessScope
+    execution_guidance: ExecutionGuidance
     acceptance_criteria: list[AcceptanceCriterion] = Field(min_length=1)
     priority: Literal["critical", "high", "normal", "low"] = "normal"
     priority_confidence: float = Field(default=0.5, ge=0, le=1)
     priority_reason: str = ""
     dependencies: list[str] = Field(default_factory=list)
-    affected_domains: list[str] = Field(default_factory=list)
     assumptions: list[Assumption] = Field(default_factory=list)
     source_evidence: list[str] = Field(default_factory=list)
 
 
-class CandidateRequirements(PlannerSchema):
+class RequirementAssetResult(PlannerSchema):
+    raw_requirement: dict[str, object]
     requirements: list[AgileRequirement] = Field(default_factory=list)
+    dependency_analysis: DependencyAnalysis | None = None
 
 
 class MergeCandidate(PlannerSchema):
@@ -131,6 +172,8 @@ class WorkflowResult(PlannerSchema):
     run_id: str
     status: str
     requirements: list[AgileRequirement] = Field(default_factory=list)
+    raw_requirement: dict[str, object] = Field(default_factory=dict)
+    dependency_analysis: DependencyAnalysis | None = None
     assumptions: list[Assumption] = Field(default_factory=list)
     ambiguities: list[Ambiguity] = Field(default_factory=list)
     warnings: list[ValidationFindingData] = Field(default_factory=list)

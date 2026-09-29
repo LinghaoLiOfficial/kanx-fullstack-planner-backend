@@ -16,6 +16,7 @@ class PlannerSettings(EnvironmentSettings):
         le=1,
         validation_alias="TEMPORAL_ACTIVITY_MAX_RETRIES",
     )
+    enrichment_concurrency: int = Field(default=3, ge=1, le=10)
 
     @property
     def activity_max_attempts(self) -> int:

@@ -44,9 +44,7 @@ class LLMTaskConfig(BaseModel):
     base_url: str | None = None
     api_key: SecretStr | None = None
     model: str | None = None
-    structured_output_method: Literal[
-        "function_calling", "json_mode", "json_schema"
-    ] | None = None
+    structured_output_method: Literal["function_calling", "json_mode", "json_schema"] | None = None
     connect_timeout_seconds: float | None = Field(default=None, gt=0, le=120)
     read_timeout_seconds: float | None = Field(default=None, gt=0, le=600)
     provider_max_retries: int | None = Field(default=None, ge=0, le=10)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import time
@@ -20,12 +21,17 @@ from .schemas import (
     AgileRequirement,
     Ambiguity,
     BusinessIntent,
+    BusinessIntentExtraction,
+    BusinessScope,
     CandidateRequirements,
     DependencyAnalysis,
+    ExecutionGuidance,
+    ImpactScope,
     NormalizedRequirement,
     ProjectContext,
-    Scope,
+    RequirementCandidate,
 )
+from .settings import get_planner_settings
 
 SYSTEM_PROMPT = (
     "你是敏捷业务需求分析器。只输出符合给定结构的 JSON。"
@@ -87,8 +93,7 @@ class SchemaValidationRetryError(RuntimeError):
         self.schema = schema.__name__
         self.records = records
         super().__init__(
-            f"Schema validation failed for {task}/{schema.__name__} "
-            f"after {len(records)} attempt(s)"
+            f"Schema validation failed for {task}/{schema.__name__} after {len(records)} attempt(s)"
         )
 
 
@@ -96,16 +101,23 @@ class DefaultLLMProvider:
     async def complete(
         self, task: str, schema: type[BaseModel], payload: Mapping[str, Any]
     ) -> BaseModel:
-        system = (
-            f"{SYSTEM_PROMPT} 必须严格按照 output_schema 返回一个 JSON 对象；"
-            "不得增加字段，不得改名，不得使用外层包装。"
-        )
-        user = json.dumps(
-            {"task": task, "input": payload, "output_schema": schema.model_json_schema()},
-            ensure_ascii=False,
-            default=str,
-        )
+        system, user = default_messages(task, schema, payload)
         return await structured_output(schema, [("system", system), ("user", user)], task=task)
+
+
+def default_messages(
+    task: str, schema: type[BaseModel], payload: Mapping[str, Any]
+) -> tuple[str, str]:
+    system = (
+        f"{SYSTEM_PROMPT} 必须严格按照 output_schema 返回一个 JSON 对象；"
+        "不得增加字段，不得改名，不得使用外层包装。"
+    )
+    user = json.dumps(
+        {"task": task, "input": payload, "output_schema": schema.model_json_schema()},
+        ensure_ascii=False,
+        default=str,
+    )
+    return system, user
 
 
 class FakeLLMProvider:
@@ -121,42 +133,62 @@ class FakeLLMProvider:
                 explicit_goals=[text],
                 mentioned_behaviors=[text],
             )
-        if schema is BusinessIntent:
-            return BusinessIntent(
-                intent_key="intent-1",
-                name="用户需求",
-                goal=text,
-                primary_actor="用户",
-                trigger="用户提出需求",
-                desired_outcome=text,
-                confidence=0.8,
+        if schema is BusinessIntentExtraction:
+            return BusinessIntentExtraction(
+                intents=[
+                    BusinessIntent(
+                        intent_key="intent-1",
+                        name="用户需求",
+                        goal=text,
+                        primary_actor="用户",
+                        trigger="用户提出需求",
+                        desired_outcome=text,
+                        confidence=0.8,
+                    )
+                ]
             )
         if schema is CandidateRequirements:
             return CandidateRequirements(
-                requirements=[
-                    AgileRequirement(
+                candidates=[
+                    RequirementCandidate(
                         draft_key="requirement-1",
                         name="实现用户需求",
-                        user_story=f"作为用户，我希望{text}，以便达成业务目标。",
-                        business_goal=text,
-                        scope=Scope(in_scope=[text], out_of_scope=[]),
-                        acceptance_criteria=[
-                            AcceptanceCriterion(
-                                id="ac-1",
-                                given="用户提出需求",
-                                when="系统处理需求",
-                                then="系统提供符合需求的结果",
-                            )
-                        ],
+                        value=text,
+                        primary_actor="用户",
                         source_evidence=[text],
                     )
                 ]
             )
         if schema is AgileRequirement:
-            return AgileRequirement.model_validate(payload["requirement"])
+            candidate = payload["requirement"]
+            return AgileRequirement(
+                requirement_key=str(candidate["draft_key"]),
+                name=str(candidate["name"]),
+                user_story=f"作为{candidate['primary_actor']}，我希望{candidate['value']}，以便达成业务目标。",
+                business_goal=str(candidate["value"]),
+                impact_scope=ImpactScope(
+                    user_roles=[str(candidate["primary_actor"])],
+                    future_asset_types=["ux", "api", "database"],
+                ),
+                business_scope=BusinessScope(included=[str(candidate["value"])]),
+                execution_guidance=ExecutionGuidance(
+                    objective=str(candidate["value"]), expected_behavior=[str(candidate["value"])]
+                ),
+                acceptance_criteria=[
+                    AcceptanceCriterion(
+                        id="ac-1",
+                        given="用户提出需求",
+                        when="系统处理需求",
+                        then="系统提供符合需求的结果",
+                    )
+                ],
+                source_evidence=list(candidate.get("source_evidence", [])),
+            )
         if schema is DependencyAnalysis:
             return DependencyAnalysis(
-                ordering=[item.get("draft_key", "") for item in payload.get("requirements", [])]
+                ordering=[
+                    item.get("requirement_key", "") for item in payload.get("requirements", [])
+                ]
             )
         raise ValueError(f"Fake provider has no response for {schema.__name__}")
 
@@ -165,9 +197,7 @@ async def run_graph(
     raw_text: str, context: ProjectContext, provider: LLMProvider | None = None
 ) -> dict[str, Any]:
     graph = build_planner_graph(provider)
-    state = await graph.ainvoke(
-        {"raw_text": raw_text, "project_context": context.model_dump()}
-    )
+    state = await graph.ainvoke({"raw_text": raw_text, "project_context": context.model_dump()})
     result = state.get("result")
     if result is None:
         raise RuntimeError("Planner graph completed without a result")
@@ -213,7 +243,14 @@ async def _invoke_with_events(
             payload,
             call_index=call_index,
             subject=subject,
-            record_sink=lambda record: _emit({"type": "llm_call", "data": record}),
+            record_sink=lambda record: _emit(
+                {
+                    "type": (
+                        "llm_call_started" if record["audit"]["status"] == "running" else "llm_call"
+                    ),
+                    "data": record,
+                }
+            ),
         )
     except SchemaValidationRetryError as error:
         _emit({"type": "stage", "stage": task, "status": "failed", "error": str(error)})
@@ -238,24 +275,26 @@ def build_planner_graph(provider: LLMProvider | None = None) -> Any:
         )
         normalized = NormalizedRequirement.model_validate(value)
         data = normalized.model_dump()
-        _emit({
-            "type": "stage", "stage": "normalize_requirement", "status": "succeeded", "data": data
-        })
+        _emit(
+            {"type": "stage", "stage": "normalize_requirement", "status": "succeeded", "data": data}
+        )
         return {"normalized": data}
 
     async def extract_business_intents(state: PlannerState) -> PlannerState:
         _emit({"type": "stage", "stage": "extract_business_intents", "status": "running"})
         value = await _invoke_with_events(
-            llm, "extract_business_intents", BusinessIntent, state["normalized"]
+            llm, "extract_business_intents", BusinessIntentExtraction, state["normalized"]
         )
-        intents = [BusinessIntent.model_validate(value)]
+        intents = BusinessIntentExtraction.model_validate(value).intents
         data = [item.model_dump() for item in intents]
-        _emit({
-            "type": "stage",
-            "stage": "extract_business_intents",
-            "status": "succeeded",
-            "data": data,
-        })
+        _emit(
+            {
+                "type": "stage",
+                "stage": "extract_business_intents",
+                "status": "succeeded",
+                "data": data,
+            }
+        )
         return {"intents": data}
 
     async def decompose_candidates(state: PlannerState) -> PlannerState:
@@ -267,35 +306,49 @@ def build_planner_graph(provider: LLMProvider | None = None) -> Any:
             {"normalized": state["normalized"], "intents": state["intents"]},
         )
         candidates = CandidateRequirements.model_validate(value)
-        data = [item.model_dump() for item in candidates.requirements]
-        _emit({
-            "type": "stage", "stage": "decompose_candidates", "status": "succeeded", "data": data
-        })
+        data = [item.model_dump() for item in candidates.candidates]
+        _emit(
+            {"type": "stage", "stage": "decompose_candidates", "status": "succeeded", "data": data}
+        )
         return {"candidates": data}
 
     async def enrich_requirements(state: PlannerState) -> PlannerState:
         _emit({"type": "stage", "stage": "enrich_requirements", "status": "running"})
-        enriched: list[dict[str, Any]] = []
-        for call_index, requirement in enumerate(state["candidates"], 1):
-            value = await _invoke_with_events(
-                llm,
-                "enrich_requirements",
-                AgileRequirement,
-                {
-                    "requirement": requirement,
-                    "normalized": state["normalized"],
-                    "project_context": state["project_context"],
-                },
-                call_index=call_index,
-                subject={
-                    "key": str(requirement.get("draft_key", "")),
-                    "label": str(requirement.get("name", "")),
-                },
+        semaphore = asyncio.Semaphore(get_planner_settings().enrichment_concurrency)
+
+        async def enrich_one(call_index: int, requirement: dict[str, Any]) -> dict[str, Any]:
+            async with semaphore:
+                value = await _invoke_with_events(
+                    llm,
+                    "enrich_requirements",
+                    AgileRequirement,
+                    {
+                        "requirement": requirement,
+                        "normalized": state["normalized"],
+                        "project_context": state["project_context"],
+                    },
+                    call_index=call_index,
+                    subject={
+                        "key": str(requirement.get("draft_key", "")),
+                        "label": str(requirement.get("name", "")),
+                    },
+                )
+                return AgileRequirement.model_validate(value).model_dump()
+
+        enriched = await asyncio.gather(
+            *(
+                enrich_one(call_index, requirement)
+                for call_index, requirement in enumerate(state["candidates"], 1)
             )
-            enriched.append(AgileRequirement.model_validate(value).model_dump())
-        _emit({
-            "type": "stage", "stage": "enrich_requirements", "status": "succeeded", "data": enriched
-        })
+        )
+        _emit(
+            {
+                "type": "stage",
+                "stage": "enrich_requirements",
+                "status": "succeeded",
+                "data": enriched,
+            }
+        )
         return {"requirements": enriched}
 
     async def analyze_dependencies(state: PlannerState) -> PlannerState:
@@ -304,12 +357,14 @@ def build_planner_graph(provider: LLMProvider | None = None) -> Any:
             llm, "analyze_dependencies", DependencyAnalysis, {"requirements": state["requirements"]}
         )
         dependencies = DependencyAnalysis.model_validate(value).model_dump()
-        _emit({
-            "type": "stage",
-            "stage": "analyze_dependencies",
-            "status": "succeeded",
-            "data": dependencies,
-        })
+        _emit(
+            {
+                "type": "stage",
+                "stage": "analyze_dependencies",
+                "status": "succeeded",
+                "data": dependencies,
+            }
+        )
         return {"dependencies": dependencies}
 
     async def validate_and_gate(state: PlannerState) -> PlannerState:
@@ -326,9 +381,9 @@ def build_planner_graph(provider: LLMProvider | None = None) -> Any:
             "ambiguities": [item.model_dump() for item in ambiguities],
             "findings": findings,
         }
-        _emit({
-            "type": "stage", "stage": "validate_and_gate", "status": "succeeded", "data": findings
-        })
+        _emit(
+            {"type": "stage", "stage": "validate_and_gate", "status": "succeeded", "data": findings}
+        )
         return {
             "ambiguities": cast(list[dict[str, Any]], result["ambiguities"]),
             "findings": findings,
@@ -377,9 +432,7 @@ async def _invoke(
         if record_sink is not None:
             record_sink(record)
 
-    def fail(
-        record: dict[str, Any], started: float, error_class: str, error: Exception
-    ) -> None:
+    def fail(record: dict[str, Any], started: float, error_class: str, error: Exception) -> None:
         record["audit"].update(
             status="failed",
             finished_at=datetime.now(UTC).isoformat(),
@@ -425,6 +478,21 @@ async def _invoke(
             },
         }
 
+        actual_provider = getattr(provider, "provider", provider)
+        if isinstance(actual_provider, DefaultLLMProvider):
+            system, user = default_messages(task, schema, payload)
+            record["control"]["system_prompt"] = system
+            record["control"]["user_prompt"] = user
+            record["control"]["actual_prompt_recorded"] = True
+        else:
+            record["control"]["system_prompt"] = SYSTEM_PROMPT
+            record["control"]["user_prompt"] = None
+            record["control"]["actual_prompt_recorded"] = False
+        if record_sink is not None:
+            record_sink(
+                dict(record, audit=dict(record["audit"]), business=dict(record["business"]))
+            )
+
         try:
             raw_result = await provider.complete(task, schema, payload)
             result = schema.model_validate(raw_result)
@@ -464,9 +532,13 @@ def _is_output_schema_error(error: Exception) -> bool:
         return True
     name = type(error).__name__.casefold()
     message = str(error).casefold()
-    return "jsondecode" in name or "outputparser" in name or any(
-        phrase in message
-        for phrase in ("validation error", "json parse", "invalid json", "field required")
+    return (
+        "jsondecode" in name
+        or "outputparser" in name
+        or any(
+            phrase in message
+            for phrase in ("validation error", "json parse", "invalid json", "field required")
+        )
     )
 
 
@@ -474,14 +546,19 @@ async def _complete_intents(
     provider: LLMProvider, normalized: NormalizedRequirement
 ) -> list[BusinessIntent]:
     raw = await provider.complete(
-        "extract_business_intents", BusinessIntent, normalized.model_dump()
+        "extract_business_intents", BusinessIntentExtraction, normalized.model_dump()
     )
-    return [raw if isinstance(raw, BusinessIntent) else BusinessIntent.model_validate(raw)]
+    extraction = (
+        raw
+        if isinstance(raw, BusinessIntentExtraction)
+        else BusinessIntentExtraction.model_validate(raw)
+    )
+    return extraction.intents
 
 
 async def _enrich(
     provider: LLMProvider,
-    requirements: list[AgileRequirement],
+    requirements: list[RequirementCandidate],
     normalized: NormalizedRequirement,
     context: ProjectContext,
 ) -> list[AgileRequirement]:
@@ -513,7 +590,7 @@ def _ambiguities(
             Ambiguity(
                 id=f"ambiguity-{index}",
                 question=f"请明确术语：{term}",
-                related_requirement_keys=[item.draft_key for item in requirements],
+                related_requirement_keys=[item.requirement_key for item in requirements],
                 severity="high",
             )
         )
@@ -530,23 +607,72 @@ def validate_requirements(
         )
     seen: set[str] = set()
     for item in requirements:
-        if item.draft_key in seen:
+        if item.requirement_key in seen:
             findings.append(
                 {
                     "severity": "error",
                     "code": "duplicate_key",
                     "message": "需求候选键重复",
-                    "feature_key": item.draft_key,
+                    "feature_key": item.requirement_key,
                 }
             )
-        seen.add(item.draft_key)
+        seen.add(item.requirement_key)
         if not item.source_evidence:
             findings.append(
                 {
                     "severity": "warning",
                     "code": "missing_source_evidence",
                     "message": "需求缺少原文证据",
-                    "feature_key": item.draft_key,
+                    "feature_key": item.requirement_key,
+                }
+            )
+        if not item.name:
+            findings.append(
+                {
+                    "severity": "error",
+                    "code": "missing_name",
+                    "message": "需求缺少名称",
+                    "feature_key": item.requirement_key,
+                }
+            )
+        if not item.user_story:
+            findings.append(
+                {
+                    "severity": "error",
+                    "code": "missing_user_story",
+                    "message": "需求缺少用户故事",
+                    "feature_key": item.requirement_key,
+                }
+            )
+        if not item.business_scope.included:
+            findings.append(
+                {
+                    "severity": "error",
+                    "code": "missing_business_scope",
+                    "message": "需求缺少包含的业务范围",
+                    "feature_key": item.requirement_key,
+                }
+            )
+        if (
+            not item.impact_scope.business_domains
+            and not item.impact_scope.user_roles
+            and not item.impact_scope.business_objects
+        ):
+            findings.append(
+                {
+                    "severity": "error",
+                    "code": "missing_impact_scope",
+                    "message": "需求缺少影响范围",
+                    "feature_key": item.requirement_key,
+                }
+            )
+        if not item.execution_guidance.objective:
+            findings.append(
+                {
+                    "severity": "error",
+                    "code": "missing_execution_guidance",
+                    "message": "需求缺少执行说明",
+                    "feature_key": item.requirement_key,
                 }
             )
         if not item.acceptance_criteria:
@@ -555,7 +681,7 @@ def validate_requirements(
                     "severity": "error",
                     "code": "missing_acceptance_criteria",
                     "message": "需求缺少验收标准",
-                    "feature_key": item.draft_key,
+                    "feature_key": item.requirement_key,
                 }
             )
     if raw_text and requirements and not any(item.source_evidence for item in requirements):

@@ -88,9 +88,7 @@ async def dispatch_once(settings: Settings, client: Client) -> int:
                     lease.organization_id = job.organization_id
                     lease.job_type = job.job_type
                     lease.owner = workflow_id
-                    lease.expires_at = now + timedelta(
-                        seconds=get_jobs_settings().lease_seconds
-                    )
+                    lease.expires_at = now + timedelta(seconds=get_jobs_settings().lease_seconds)
                     lease.heartbeat_at = now
                     await session.flush()
                 try:

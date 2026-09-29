@@ -61,6 +61,15 @@ GRADIO_FOCUS_CSS = """
 .gradio-container .cm-editor.cm-focused {
     outline: none !important;
     box-shadow: none !important;
+    border-color: var(--border-color-primary) !important;
+}
+
+/* Gradio applies the orange accent to the parent block when a child is focused.
+   Keep focus visible through the browser's normal caret/selection, without
+   turning the whole component frame orange. */
+.gradio-container :where(.block, .form, .panel, .accordion):focus-within {
+    border-color: var(--border-color-primary) !important;
+    box-shadow: none !important;
 }
 """
 
@@ -156,19 +165,19 @@ def validation_report_html(
     )
     check_items = "".join(
         f'<li class="{"check-failed" if code in failure_codes else "check-passed"}">'
-        f'<span>{"未通过" if code in failure_codes else "通过"}</span>{escape(label)}</li>'
+        f"<span>{'未通过' if code in failure_codes else '通过'}</span>{escape(label)}</li>"
         for code, label in checks
     )
 
     issue_items = "".join(
-        f'<li><strong>{escape(str(item.get("severity", "")).upper())}</strong> '
-        f'{escape(str(item.get("message", "")))}'
-        f'{f" · {escape(str(item["feature_key"]))}" if item.get("feature_key") else ""}</li>'
+        f"<li><strong>{escape(str(item.get('severity', '')).upper())}</strong> "
+        f"{escape(str(item.get('message', '')))}"
+        f"{f' · {escape(str(item["feature_key"]))}' if item.get('feature_key') else ''}</li>"
         for item in findings
     )
     ambiguity_items = "".join(
-        f'<li><strong>{escape(str(item.get("severity", "")).upper())}</strong> '
-        f'{escape(str(item.get("question", "")))}</li>'
+        f"<li><strong>{escape(str(item.get('severity', '')).upper())}</strong> "
+        f"{escape(str(item.get('question', '')))}</li>"
         for item in ambiguities
     )
     issues = (
@@ -201,7 +210,7 @@ def validation_report_html(
         "</style>"
         f'<div class="gate-head"><div><h3>{headline}</h3><p>{detail}</p></div>'
         f'<div class="gate-counts">错误 {len(errors)} · 警告 {len(warnings)} · '
-        f'歧义 {len(ambiguities)}</div></div>{checklist}{issues}{questions}</div>'
+        f"歧义 {len(ambiguities)}</div></div>{checklist}{issues}{questions}</div>"
     )
 
 
@@ -218,23 +227,19 @@ def global_runtime_info_html(
     planner_settings = get_planner_settings()
 
     provider_limits = {
-        int(record.get("control", {}).get("provider_max_retries", 0))
-        for record in llm_calls
+        int(record.get("control", {}).get("provider_max_retries", 0)) for record in llm_calls
     }
     if not provider_limits:
         provider_limits = {ai_settings.provider_max_retries}
     provider_policy = ", ".join(str(value) for value in sorted(provider_limits))
 
     schema_limits = {
-        int(record.get("control", {}).get("schema_max_retries", 0))
-        for record in llm_calls
+        int(record.get("control", {}).get("schema_max_retries", 0)) for record in llm_calls
     }
     if not schema_limits:
         schema_limits = {ai_settings.schema_max_retries}
     schema_policy = ", ".join(str(value) for value in sorted(schema_limits))
-    schema_max_attempts = ", ".join(
-        str(value + 1) for value in sorted(schema_limits)
-    )
+    schema_max_attempts = ", ".join(str(value + 1) for value in sorted(schema_limits))
 
     invocations: dict[str, list[dict[str, Any]]] = {}
     for record in llm_calls:
@@ -249,12 +254,8 @@ def global_runtime_info_html(
         audit = latest.get("audit", {})
         label = str(subject.get("label") or task.get("label") or task.get("key") or "未知任务")
         state = "成功" if audit.get("status") == "succeeded" else "失败"
-        retry_items.append(
-            f"<li>{escape(label)} · {len(records)} 次尝试 · {state}</li>"
-        )
-    retry_details = (
-        f'<ul class="global-detail">{"".join(retry_items)}</ul>' if retry_items else ""
-    )
+        retry_items.append(f"<li>{escape(label)} · {len(records)} 次尝试 · {state}</li>")
+    retry_details = f'<ul class="global-detail">{"".join(retry_items)}</ul>' if retry_items else ""
 
     if gate_state == "pending":
         gate_summary = "等待门禁节点执行"
@@ -272,8 +273,8 @@ def global_runtime_info_html(
         gate_summary = "已通过，无门禁错误"
         gate_tone = "passed"
     gate_items = "".join(
-        f'<li><strong>{escape(str(item.get("code", "error")))}</strong> · '
-        f'{escape(str(item.get("message", "")))}</li>'
+        f"<li><strong>{escape(str(item.get('code', 'error')))}</strong> · "
+        f"{escape(str(item.get('message', '')))}</li>"
         for item in gate_errors
     )
     gate_details = f'<ul class="global-detail">{gate_items}</ul>' if gate_items else ""
@@ -299,12 +300,12 @@ def global_runtime_info_html(
         '<p class="scope">实际重试由 Provider SDK 内部执行，当前事件不可观测。</p></section>'
         '<section class="global-card"><h4>相同输入、Prompt 和 Schema 重试</h4>'
         f'<p class="status">最多额外重试 {escape(schema_policy)} 次 · 最大尝试 '
-        f'{escape(schema_max_attempts)} 次</p>'
+        f"{escape(schema_max_attempts)} 次</p>"
         f'<p class="scope">本次已重试 {len(retried)} 个逻辑调用，共 {retry_attempts} 个额外 '
-        f'Attempt。</p>{retry_details}</section>'
+        f"Attempt。</p>{retry_details}</section>"
         '<section class="global-card"><h4>Temporal Activity 重试</h4>'
         f'<p class="status">最多额外重试 {planner_settings.temporal_activity_max_retries} 次 · '
-        f'最大尝试 {planner_settings.activity_max_attempts} 次</p>'
+        f"最大尝试 {planner_settings.activity_max_attempts} 次</p>"
         '<p class="scope">本次 Gradio 直连 LangGraph，未经过 Temporal，因此不适用；'
         "该策略用于 API/Job 执行。</p>"
         "</section></div>"
@@ -334,9 +335,7 @@ def llm_task_choices(records: list[dict[str, Any]]) -> list[tuple[str, str]]:
     return choices
 
 
-def llm_invocation_choices(
-    records: list[dict[str, Any]], task_key: str
-) -> list[tuple[str, str]]:
+def llm_invocation_choices(records: list[dict[str, Any]], task_key: str) -> list[tuple[str, str]]:
     latest: dict[str, dict[str, Any]] = {}
     for record in records:
         if record["task"]["key"] == task_key:
@@ -353,9 +352,7 @@ def llm_invocation_choices(
     return choices
 
 
-def llm_attempt_choices(
-    records: list[dict[str, Any]], invocation_id: str
-) -> list[tuple[str, str]]:
+def llm_attempt_choices(records: list[dict[str, Any]], invocation_id: str) -> list[tuple[str, str]]:
     choices: list[tuple[str, str]] = []
     for record in records:
         if record["invocation_id"] != invocation_id:
@@ -502,7 +499,12 @@ async def run_planner(
             details: tuple[Any, ...] = (
                 gr.update(choices=[], value=None),
                 gr.update(choices=[], value=None),
-                "", {}, {}, {}, "", {},
+                "",
+                {},
+                {},
+                {},
+                "",
+                {},
             )
         elif initialize_llm_details and llm_calls and not llm_details_initialized:
             task_key = str(llm_calls[-1]["task"]["key"])
@@ -578,8 +580,7 @@ async def run_planner(
                 llm_calls.append(record)
                 audit = cast(dict[str, Any], record["audit"])
                 yield view(
-                    f"LLM 调用完成 · {record['task']['label']} · "
-                    f"{audit['elapsed_ms']}ms",
+                    f"LLM 调用完成 · {record['task']['label']} · {audit['elapsed_ms']}ms",
                     initialize_llm_details=True,
                 )
                 continue
@@ -608,11 +609,8 @@ async def run_planner(
 def gradio_theme() -> Any:
     return gr.themes.Default().set(
         input_border_color_focus="*border_color_primary",
-        input_border_color_focus_dark="*border_color_primary_dark",
         input_shadow_focus="none",
-        input_shadow_focus_dark="none",
         checkbox_border_color_focus="*checkbox_border_color",
-        checkbox_border_color_focus_dark="*checkbox_border_color_dark",
     )
 
 
@@ -641,12 +639,8 @@ def build_demo() -> gr.Blocks:
                     clear = gr.ClearButton()
             with gr.Column(scale=1):
                 status = gr.Textbox(label="运行状态", lines=3, interactive=False)
-                validation_report = gr.HTML(
-                    value=validation_report_html(), label="门禁与校验"
-                )
-        global_info = gr.HTML(
-            value=global_runtime_info_html(), label="全局运行信息"
-        )
+                validation_report = gr.HTML(value=validation_report_html(), label="门禁与校验")
+        global_info = gr.HTML(value=global_runtime_info_html(), label="全局运行信息")
         workflow_graph = gr.HTML(value=workflow_graph_html(), label="Workflow 图")
         with gr.Tab("规范化需求"):
             normalized = gr.Code(

@@ -3,5 +3,8 @@ INSTALLED_MODULES = (
     "temporal",
     "ai",
     "jobs",
+    "users",
+    "auth",
+    "projects",
     "planner",
 )

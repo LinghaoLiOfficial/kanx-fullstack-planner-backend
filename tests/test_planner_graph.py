@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -36,7 +37,7 @@ def test_fake_provider_generates_agile_requirement() -> None:
     )
     assert result["requirements"]
     requirement = result["requirements"][0]
-    assert requirement["draft_key"] == "requirement-1"
+    assert requirement["requirement_key"] == "requirement-1"
     assert requirement["acceptance_criteria"]
     assert result["findings"] == []
 
@@ -44,9 +45,7 @@ def test_fake_provider_generates_agile_requirement() -> None:
 def test_default_provider_includes_the_exact_output_schema(monkeypatch: Any) -> None:
     captured: dict[str, Any] = {}
 
-    async def fake_structured_output(
-        schema: Any, messages: list[Any], *, task: str
-    ) -> Any:
+    async def fake_structured_output(schema: Any, messages: list[Any], *, task: str) -> Any:
         captured.update(schema=schema, messages=messages, task=task)
         return schema(
             normalized_summary="收藏商品",
@@ -84,8 +83,8 @@ def test_gradio_workflow_graph_renders_runtime_statuses() -> None:
         {"normalize_requirement": 1.24, "decompose_candidates": 62.5},
     )
     assert "normalize_requirement" in html
-    assert "class=\"wf-node succeeded\"" in html
-    assert "class=\"wf-node running\"" in html
+    assert 'class="wf-node succeeded"' in html
+    assert 'class="wf-node running"' in html
     assert "1.2s" in html
     assert "1m 2.5s" in html
     assert "--" in html
@@ -165,10 +164,7 @@ def test_global_runtime_info_reports_gate_errors_and_observed_schema_retries() -
 
 def test_gradio_registers_global_runtime_information() -> None:
     demo = gradio_app.build_demo()
-    labels = {
-        component.get("props", {}).get("label")
-        for component in demo.config["components"]
-    }
+    labels = {component.get("props", {}).get("label") for component in demo.config["components"]}
     assert "全局运行信息" in labels
 
 
@@ -179,6 +175,8 @@ def test_gradio_removes_component_focus_frames() -> None:
     assert theme["checkbox_border_color_focus"] == "*checkbox_border_color"
     assert ":focus-visible" in gradio_app.GRADIO_FOCUS_CSS
     assert "box-shadow: none !important" in gradio_app.GRADIO_FOCUS_CSS
+    assert "border-color: var(--border-color-primary) !important" in gradio_app.GRADIO_FOCUS_CSS
+    assert ":focus-within" in gradio_app.GRADIO_FOCUS_CSS
 
 
 def test_validation_reports_duplicate_keys() -> None:
@@ -186,11 +184,13 @@ def test_validation_reports_duplicate_keys() -> None:
     from kanx_fullstack_planner.modules.planner.schemas import AgileRequirement
 
     item = AgileRequirement(
-        draft_key="same",
+        requirement_key="same",
         name="需求",
         user_story="作为用户，我希望完成需求。",
         business_goal="完成需求",
-        scope={"in_scope": ["需求"], "out_of_scope": []},
+        impact_scope={"user_roles": ["用户"]},
+        business_scope={"included": ["需求"], "excluded": []},
+        execution_guidance={"objective": "完成需求"},
         acceptance_criteria=[{"id": "ac-1", "given": "前置", "when": "动作", "then": "结果"}],
         source_evidence=["需求"],
     )
@@ -269,9 +269,7 @@ def test_schema_validation_retry_is_limited_to_one(monkeypatch: Any) -> None:
     assert len(calls) == 2
     assert [item["audit"]["attempt"] for item in calls] == [1, 2]
     assert len({item["invocation_id"] for item in calls}) == 1
-    assert all(
-        item["audit"]["error"]["class"] == "schema_validation" for item in calls
-    )
+    assert all(item["audit"]["error"]["class"] == "schema_validation" for item in calls)
 
 
 def test_llm_call_event_is_grouped_by_semantics_control_and_audit() -> None:
@@ -286,7 +284,13 @@ def test_llm_call_event_is_grouped_by_semantics_control_and_audit() -> None:
 
     record = asyncio.run(collect())[0]
     assert set(record) == {
-        "invocation_id", "task", "call_index", "subject", "business", "control", "audit"
+        "invocation_id",
+        "task",
+        "call_index",
+        "subject",
+        "business",
+        "control",
+        "audit",
     }
     UUID(record["invocation_id"])
     assert record["task"] == {"key": "normalize_requirement", "label": "规范化原始需求"}
@@ -331,11 +335,9 @@ def test_enrichment_calls_have_ordered_business_subjects() -> None:
         async def complete(self, task: str, schema: Any, payload: Any) -> Any:
             result = await super().complete(task, schema, payload)
             if schema is CandidateRequirements:
-                first = result.requirements[0]
-                second = first.model_copy(
-                    update={"draft_key": "requirement-2", "name": "取消收藏"}
-                )
-                return CandidateRequirements(requirements=[first, second])
+                first = result.candidates[0]
+                second = first.model_copy(update={"draft_key": "requirement-2", "name": "取消收藏"})
+                return CandidateRequirements(candidates=[first, second])
             return result
 
     async def collect() -> list[dict[str, Any]]:
@@ -344,14 +346,39 @@ def test_enrichment_calls_have_ordered_business_subjects() -> None:
             async for event in planner_graph.run_graph_stream(
                 "用户希望收藏和取消收藏", ProjectContext(), Provider()
             )
-            if event["type"] == "llm_call"
-            and event["data"]["task"]["key"] == "enrich_requirements"
+            if event["type"] == "llm_call" and event["data"]["task"]["key"] == "enrich_requirements"
         ]
 
     records = asyncio.run(collect())
     assert [record["call_index"] for record in records] == [1, 2]
-    assert [record["subject"]["key"] for record in records] == [
-        "requirement-1", "requirement-2"
+    assert [record["subject"]["key"] for record in records] == ["requirement-1", "requirement-2"]
+
+
+def test_enrichment_runs_concurrently_and_preserves_candidate_order() -> None:
+    from kanx_fullstack_planner.modules.planner.schemas import (
+        AgileRequirement,
+        CandidateRequirements,
+    )
+
+    class Provider(FakeLLMProvider):
+        async def complete(self, task: str, schema: Any, payload: Any) -> Any:
+            result = await super().complete(task, schema, payload)
+            if schema is CandidateRequirements:
+                first = result.candidates[0]
+                second = first.model_copy(update={"draft_key": "requirement-2", "name": "取消收藏"})
+                return CandidateRequirements(candidates=[first, second])
+            if schema is AgileRequirement:
+                await asyncio.sleep(0.08)
+            return result
+
+    started = time.perf_counter()
+    result = asyncio.run(run_graph("用户希望收藏和取消收藏", ProjectContext(), Provider()))
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 0.14
+    assert [item["requirement_key"] for item in result["requirements"]] == [
+        "requirement-1",
+        "requirement-2",
     ]
 
 
@@ -364,20 +391,17 @@ def test_llm_call_selector_helpers_group_and_prioritize_failures() -> None:
             "subject": {"key": f"requirement-{call_index}", "label": f"需求 {call_index}"},
             "business": {"input": {"index": call_index}, "output": {}},
             "control": {"model": "test", "system_prompt": "system"},
-            "audit": {
-                "status": status, "attempt": attempt, "max_attempts": 2, "elapsed_ms": 10
-            },
+            "audit": {"status": status, "attempt": attempt, "max_attempts": 2, "elapsed_ms": 10},
         }
 
     records = [record("one", 1, "succeeded", 1), record("two", 2, "failed", 1)]
     assert llm_task_choices(records) == [("细化需求与验收标准", "enrich_requirements")]
     assert [value for _, value in llm_invocation_choices(records, "enrich_requirements")] == [
-        "one", "two"
+        "one",
+        "two",
     ]
     assert llm_attempt_choices(records, "two")[0][1] == "two:1"
-    invocation_update, attempt_update, summary, *_ = select_llm_task(
-        records, "enrich_requirements"
-    )
+    invocation_update, attempt_update, summary, *_ = select_llm_task(records, "enrich_requirements")
     assert invocation_update.value == "two"
     assert attempt_update.value == "two:1"
     assert "失败" in summary
@@ -391,9 +415,7 @@ def test_run_planner_populates_the_first_llm_call_details(monkeypatch: Any) -> N
         "subject": None,
         "business": {"input": {"raw_text": "收藏商品"}, "output": {"summary": "收藏"}},
         "control": {"model": "test-model", "system_prompt": "system"},
-        "audit": {
-            "status": "succeeded", "attempt": 1, "max_attempts": 2, "elapsed_ms": 12
-        },
+        "audit": {"status": "succeeded", "attempt": 1, "max_attempts": 2, "elapsed_ms": 12},
     }
 
     async def fake_stream(*args: Any, **kwargs: Any) -> Any:
